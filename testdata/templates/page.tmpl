@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>
+            Page: {{ .Num }}
+        </title>
+    </head>
+    <body>
+        <h1>Page: {{ .Num }}</h1>
+        <ol>
+        {{- range .Links}}
+        <li>
+            <a href="/{{ .ToNum }}">Page: {{ .ToNum }}</a>
+        </li>
+        {{- end }}
+        </ol>
+    </body>
+</html>
