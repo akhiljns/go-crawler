@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	cmap "github.com/orcaman/concurrent-map/v2"
 	"golang.org/x/net/html"
 )
 
@@ -21,25 +22,25 @@ import (
 func CrawlWebpage(rootURL string, maxDepth int) ([]string, error) {
 	var (
 		stack   = make([]string, 0)
-		visited = make(map[string]int)
+		visited = cmap.New[int]()
 	)
 
 	// Perform DFS traversal
 	stack = append(stack, rootURL)
-	visited[rootURL] = 0
+	visited.Set(rootURL, 0)
 
 	for len(stack) > 0 {
 		currentURL := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 
 		// Call the crawl function
-		currentDepth := visited[currentURL]
-		crawl(currentDepth, maxDepth, currentURL, &stack, visited)
+		currentDepth, _ := visited.Get(currentURL)
+		crawl(currentDepth, maxDepth, currentURL, &stack, &visited)
 	}
 
 	// Filter URLs based on maxDepth
 	var result []string
-	for url, depth := range visited {
+	for url, depth := range visited.Items() {
 		if depth <= maxDepth {
 			result = append(result, url)
 		}
@@ -55,7 +56,7 @@ func CrawlWebpage(rootURL string, maxDepth int) ([]string, error) {
 	return result, nil
 }
 
-func crawl(currentDepth, maxDepth int, url string, stack *[]string, visited map[string]int) {
+func crawl(currentDepth, maxDepth int, url string, stack *[]string, visited *cmap.ConcurrentMap[string, int]) {
 	if currentDepth >= maxDepth {
 		return
 	}
@@ -77,10 +78,10 @@ func crawl(currentDepth, maxDepth int, url string, stack *[]string, visited map[
 			continue
 		}
 
-		// Update the visited map
-		if _, exists := visited[absoluteURL]; !exists {
+		if _, exists := visited.Get(absoluteURL); !exists {
 			*stack = append(*stack, absoluteURL)
-			visited[absoluteURL] = visited[url] + 1
+			x, _ := visited.Get(url)
+			visited.Set(absoluteURL, x+1)
 		}
 	}
 }
