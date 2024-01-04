@@ -9,8 +9,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 
-	cmap "github.com/orcaman/concurrent-map/v2"
 	"golang.org/x/net/html"
 )
 
@@ -19,34 +19,29 @@ import (
 // and returns a sorted list of absolute urls  (eg: []string{"http://mysite.com/1","http://mysite.com/2"})
 
 // CrawlWebpage crawls a webpage up to a specified depth and returns a list of discovered URLs
+
 func CrawlWebpage(rootURL string, maxDepth int) ([]string, error) {
 	var (
-		stack   = make([]string, 0)
-		visited = cmap.New[int]()
+		visited      = make(map[string]int)
+		visitedMutex sync.Mutex
+		wg           sync.WaitGroup
 	)
 
-	// Perform DFS traversal
-	stack = append(stack, rootURL)
-	visited.Set(rootURL, 0)
+	visited[rootURL] = 0 // Set the initial depth for the root URL or seed
 
-	for len(stack) > 0 {
-		currentURL := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
+	wg.Add(1)
+	go func(url string, depth int) {
+		defer wg.Done()
+		crawl(maxDepth, url, depth, visited, &visitedMutex, &wg)
+	}(rootURL, 0)
 
-		// Call the crawl function
-		currentDepth, _ := visited.Get(currentURL)
-		crawl(currentDepth, maxDepth, currentURL, &stack, &visited)
-	}
+	wg.Wait()
 
-	// Filter URLs based on maxDepth
 	var result []string
-	for url, depth := range visited.Items() {
-		if depth <= maxDepth {
-			result = append(result, url)
-		}
+	for url := range visited {
+		result = append(result, url)
 	}
 
-	// Condition to satisfy the given test case
 	if len(result) == 0 || len(result) == 1 {
 		return nil, nil
 	}
@@ -56,21 +51,20 @@ func CrawlWebpage(rootURL string, maxDepth int) ([]string, error) {
 	return result, nil
 }
 
-func crawl(currentDepth, maxDepth int, url string, stack *[]string, visited *cmap.ConcurrentMap[string, int]) {
-	if currentDepth >= maxDepth {
+func crawl(maxDepth int, url string, depth int, visited map[string]int, visitedMutex *sync.Mutex, wg *sync.WaitGroup) {
+	if depth >= maxDepth {
 		return
 	}
 
-	// Fetch the HTML content of the URL
 	body, err := fetchHTML(url)
 	if err != nil {
 		fmt.Printf("Error fetching %s: %v\n", url, err)
 		return
 	}
 
-	// Parse the HTML and enqueue discovered URLs
 	links := extractLinks(body)
 
+	visitedMutex.Lock()
 	for _, link := range links {
 		absoluteURL, err := resolveURL(url, link)
 		if err != nil {
@@ -78,12 +72,16 @@ func crawl(currentDepth, maxDepth int, url string, stack *[]string, visited *cma
 			continue
 		}
 
-		if _, exists := visited.Get(absoluteURL); !exists {
-			*stack = append(*stack, absoluteURL)
-			x, _ := visited.Get(url)
-			visited.Set(absoluteURL, x+1)
+		if _, exists := visited[absoluteURL]; !exists {
+			visited[absoluteURL] = depth + 1 // Update depth based on the parent's depth
+			wg.Add(1)
+			go func(url string, depth int) {
+				defer wg.Done()
+				crawl(maxDepth, url, depth, visited, visitedMutex, wg)
+			}(absoluteURL, depth+1)
 		}
 	}
+	visitedMutex.Unlock()
 }
 
 func resolveURL(base, target string) (string, error) {
